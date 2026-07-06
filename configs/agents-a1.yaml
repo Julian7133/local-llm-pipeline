@@ -1,0 +1,17 @@
+# InternScience/Agents-A1 — 35B MoE agentic VLM, BF16 safetensors base.
+name: agents-a1
+hf_repo: InternScience/Agents-A1
+model_type: vlm
+org: InternScience
+output_name: Agents-A1-UD-MLX-3bit
+
+recipe: unsloth-ud-3bit
+strip_mtp_config: false
+
+memory:
+  total_ram_gb: 24.0
+  reserve_gb: 3.0
+  kv_cache_bits: 4
+  min_context_tokens: 8192
+
+min_tok_s: 5.0

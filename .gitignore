@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+build/
+dist/
+.venv/
+# never commit model weights / caches
+*.safetensors
+*.gguf
+models/
+.cache/

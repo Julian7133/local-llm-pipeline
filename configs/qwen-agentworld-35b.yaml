@@ -1,0 +1,18 @@
+# Qwen-AgentWorld-35B-A3B — text-only sibling (same 256-expert MoE arch).
+# Uses the mlx-lm path rather than mlx-vlm; recipe is identical.
+name: qwen-agentworld-35b
+hf_repo: Qwen/Qwen-AgentWorld-35B-A3B-Base   # BF16 base; confirm exact repo id at fetch
+model_type: text
+org: unsloth
+output_name: Qwen-AgentWorld-35B-A3B-UD-MLX-3bit
+
+recipe: unsloth-ud-3bit
+strip_mtp_config: false
+
+memory:
+  total_ram_gb: 24.0
+  reserve_gb: 3.0
+  kv_cache_bits: 4
+  min_context_tokens: 8192
+
+min_tok_s: 5.0

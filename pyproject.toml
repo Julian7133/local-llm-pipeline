@@ -1,0 +1,30 @@
+[project]
+name = "local-llm-pipeline"
+version = "0.1.0"
+description = "UD-style 3-bit MLX quantization pipeline for oMLX serving on Apple Silicon"
+requires-python = ">=3.11"
+dependencies = [
+    "pyyaml>=6.0",
+    "huggingface_hub>=0.24",
+    # mlx-lm (git main) and mlx-vlm are required at convert/serve time.
+    # Install via scripts/setup.sh; pinned there rather than here because they
+    # track fast-moving arch fixes (Qwen3.5/3.6 quant predicates).
+]
+
+[project.optional-dependencies]
+convert = ["mlx>=0.18", "mlx-lm", "mlx-vlm"]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+quantize = "pipeline.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

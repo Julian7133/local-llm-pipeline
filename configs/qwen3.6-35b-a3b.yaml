@@ -1,0 +1,18 @@
+# Baseline VLM — the model that already works on the 24GB Mac.
+# Quantizing the BF16 base ourselves must reproduce the reference 3-bit build.
+name: qwen3.6-35b-a3b
+hf_repo: unsloth/Qwen3.6-35B-A3B          # BF16 base (not the pre-quantized dir)
+model_type: vlm
+org: unsloth
+output_name: Qwen3.6-35B-A3B-UD-MLX-3bit
+
+recipe: unsloth-ud-3bit                    # see src/pipeline/recipe.py
+strip_mtp_config: false                    # leave MTP heads for oMLX runtime patch
+
+memory:
+  total_ram_gb: 24.0
+  reserve_gb: 3.0
+  kv_cache_bits: 4
+  min_context_tokens: 8192
+
+min_tok_s: 5.0
