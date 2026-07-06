@@ -136,14 +136,20 @@ def _looks_like_expert(param_path: str) -> bool:
 UNSLOTH_UD_3BIT = QuantRecipe(name="unsloth-ud-3bit")
 
 
-def build_predicate(recipe: QuantRecipe) -> Callable[[str, object, dict], object]:
-    """Return an mlx ``quant_predicate(path, module, config)``.
+def build_predicate(recipe: QuantRecipe) -> Callable[..., object]:
+    """Return an mlx ``quant_predicate``.
 
-    mlx contract: return ``False`` to skip a module, or a dict of quantization
-    kwargs (``bits``, ``group_size``, ``mode``) to override the defaults for it.
+    mlx-lm/mlx-vlm's ``quantize_model`` invokes the predicate as
+    ``predicate(path, module)`` (2 args). ``module``/``config`` are optional so
+    the same callable is also usable in tests as ``predicate(path)``.
+
+    Contract: return ``False`` to skip a module (leave it unquantized), or a
+    dict of quantization kwargs (``bits``, ``group_size``, ``mode``) — which
+    mlx records per-layer in ``config["quantization"][path]`` and passes to
+    ``module.to_quantized``.
     """
 
-    def predicate(path: str, module: object, config: dict):  # noqa: ARG001
+    def predicate(path: str, module: object = None, config: dict | None = None):  # noqa: ARG001
         bits = recipe.bits_for(path)
         if bits is None:
             return False

@@ -118,6 +118,28 @@ def test_fetch_idempotent_when_snapshot_complete(tmp_path: Path) -> None:
     assert "cached" in result.message
 
 
+def test_partial_snapshot_is_incomplete(tmp_path: Path) -> None:
+    """An interrupted download (index present, a shard missing) must NOT read
+    as complete — otherwise the pipeline quantizes on missing weights."""
+    from pipeline.fetch import _snapshot_complete
+
+    dest = tmp_path / "base"
+    dest.mkdir()
+    (dest / "config.json").write_text("{}", encoding="utf-8")
+    (dest / "model.safetensors.index.json").write_text(
+        json.dumps(
+            {"weight_map": {"a.weight": "model-00001-of-00002.safetensors",
+                            "b.weight": "model-00002-of-00002.safetensors"}}
+        ),
+        encoding="utf-8",
+    )
+    (dest / "model-00001-of-00002.safetensors").write_bytes(b"\x00")  # only 1 of 2
+    assert _snapshot_complete(dest) is False
+
+    (dest / "model-00002-of-00002.safetensors").write_bytes(b"\x00")  # now complete
+    assert _snapshot_complete(dest) is True
+
+
 def test_fetch_checks_disk_space(tmp_path: Path) -> None:
     cfg = _cfg(work_dir=tmp_path)
     with patch("pipeline.fetch._snapshot_complete", return_value=False), patch(
@@ -133,8 +155,8 @@ def test_fetch_downloads_when_missing(tmp_path: Path) -> None:
     cfg = _cfg(work_dir=tmp_path)
     dest = base_dir(cfg)
 
-    def fake_download(*, repo_id: str, local_dir: str, local_dir_use_symlinks: bool) -> str:
-        _ = (repo_id, local_dir_use_symlinks)
+    def fake_download(*, repo_id: str, local_dir: str) -> str:
+        _ = repo_id
         _write_minimal_hf_snapshot(Path(local_dir))
         return local_dir
 

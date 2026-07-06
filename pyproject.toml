@@ -12,8 +12,16 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-convert = ["mlx>=0.18", "mlx-lm", "mlx-vlm"]
-dev = ["pytest>=8.0"]
+# transformers pinned <5.13: 5.13 changed AutoTokenizer.register() so that
+# `import mlx_lm` raises "'str' object has no attribute '__module__'".
+# 5.5.x satisfies mlx-lm (>=5.0) and mlx-vlm (>=5.5) and imports cleanly.
+convert = [
+    "mlx>=0.31",
+    "mlx-lm==0.31.3",
+    "mlx-vlm==0.6.3",
+    "transformers>=5.5,<5.13",
+]
+dev = ["pytest>=8.0", "pyyaml>=6.0"]
 
 [project.scripts]
 quantize = "pipeline.cli:main"

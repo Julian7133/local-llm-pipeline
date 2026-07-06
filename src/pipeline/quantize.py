@@ -72,18 +72,31 @@ def _run_convert(cfg: ModelConfig, source_dir: Path, out: Path) -> None:
         q_group_size=recipe.group_size,
         q_bits=recipe.default_bits,
         q_mode=recipe.mode,
-        quant_predicate=predicate,
+        trust_remote_code=True,
     )
 
     if cfg.model_type is ModelType.VLM:
-        from mlx_vlm.convert import convert
+        # NB: `from mlx_vlm import convert` — mlx_vlm.__init__ shadows the
+        # `convert` submodule with the function, so `mlx_vlm.convert.convert`
+        # is unreliable. mlx_vlm's convert accepts a callable quant_predicate
+        # (its `str` type hint is misleading) and passes it straight to
+        # mlx_lm.quantize_model. Its default path skips multimodal modules, so
+        # we compose that here to keep the vision tower unquantized while the
+        # UD recipe governs the language model.
+        from mlx_vlm import convert
+        from mlx_vlm.utils import skip_multimodal_module
 
-        convert(**kwargs, trust_remote_code=True)
+        def vlm_predicate(path: str, module: object = None):
+            if skip_multimodal_module(path):
+                return False
+            return predicate(path, module)
+
+        convert(**kwargs, quant_predicate=vlm_predicate)
         return
 
-    from mlx_lm.convert import convert
+    from mlx_lm import convert
 
-    convert(**kwargs, trust_remote_code=True)
+    convert(**kwargs, quant_predicate=predicate)
 
 
 def quantize(cfg: ModelConfig, source_dir: Path) -> StageResult:

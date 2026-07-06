@@ -25,11 +25,16 @@ fi
 echo "==> Installing pipeline package (editable) + convert/dev extras"
 python3 -m pip install -e '.[convert,dev]'
 
-echo "==> Installing mlx-lm from git main (Qwen3.5/3.6 MoE arch fixes)"
-python3 -m pip install --upgrade 'git+https://github.com/ml-explore/mlx-lm.git'
+echo "==> Installing mlx converters (verified-working versions)"
+python3 -m pip install --upgrade "mlx-lm==0.31.3" "mlx-vlm==0.6.3" huggingface_hub
 
-echo "==> Installing mlx-vlm and huggingface_hub"
-python3 -m pip install --upgrade mlx-vlm huggingface_hub
+# IMPORTANT: mlx-lm/mlx-vlm declare transformers>=5.0.0/>=5.5.0, so pip pulls the
+# latest 5.x — but transformers 5.13+ changed AutoTokenizer.register() such that
+# `import mlx_lm` dies with "'str' object has no attribute '__module__'". Pin to
+# 5.5.0 (satisfies both packages, import works). Do this LAST so it sticks; the
+# resulting "incompatible" pip warning is expected and safe.
+echo "==> Pinning transformers==5.5.0 (mlx-lm/mlx-vlm break on 5.13+)"
+python3 -m pip install "transformers==5.5.0"
 
 echo "==> Ensuring oMLX models directory exists"
 mkdir -p "${HOME}/.omlx/models"
