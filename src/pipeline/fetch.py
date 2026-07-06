@@ -1,19 +1,133 @@
 """Stage 1: fetch BF16 base from HF, with a disk-space guard.
 
 Owner: T2. See PLAN.md §2.1.
-
-TODO(T2):
-  - Resolve exact hf_repo (some ids in configs are marked "confirm at fetch").
-  - Use huggingface_hub.snapshot_download into cfg.work_dir.
-  - Guard: 35B BF16 ~= 70GB; raise if free disk < needed * 1.1 before download.
-  - Skip download if a complete snapshot already exists (idempotent).
-  - Return StageResult with artifact_path = local snapshot dir.
 """
 
 from __future__ import annotations
 
+import shutil
+from pathlib import Path
+
+from huggingface_hub import HfApi, snapshot_download
+from huggingface_hub.errors import RepositoryNotFoundError
+
 from .types import ModelConfig, StageResult
 
+# 35B BF16 ~= 70 GB on disk; require 10% headroom before starting a download.
+BF16_35B_GB = 70.0
+DISK_HEADROOM_RATIO = 1.1
 
-def fetch(cfg: ModelConfig) -> StageResult:  # noqa: ARG001
-    raise NotImplementedError("T2: implement HF snapshot download + disk guard")
+
+def base_dir(cfg: ModelConfig) -> Path:
+    """Local HF snapshot directory for a model (matches cli.base_dir)."""
+    return cfg.work_dir / cfg.name / "base"
+
+
+def _repo_candidates(hf_repo: str) -> list[str]:
+    """Build an ordered list of HF repo ids to try."""
+    seen: set[str] = set()
+    candidates: list[str] = []
+
+    def add(repo: str) -> None:
+        if repo and repo not in seen:
+            seen.add(repo)
+            candidates.append(repo)
+
+    add(hf_repo)
+    if hf_repo.endswith("-Base"):
+        add(hf_repo[: -len("-Base")])
+    if "AgentWorld" in hf_repo and "Qwen-AgentWorld-35B-A3B" not in hf_repo:
+        add("Qwen/Qwen-AgentWorld-35B-A3B")
+    return candidates
+
+
+def resolve_hf_repo(hf_repo: str, *, api: HfApi | None = None) -> str:
+    """Return the first existing repo id from ``_repo_candidates``."""
+    client = api or HfApi()
+    errors: list[str] = []
+    for repo in _repo_candidates(hf_repo):
+        try:
+            client.model_info(repo)
+            return repo
+        except RepositoryNotFoundError:
+            errors.append(f"{repo} not found")
+        except Exception as exc:  # noqa: BLE001 — surface HF auth/network issues
+            raise RuntimeError(f"failed to resolve {repo!r}: {exc}") from exc
+    raise ValueError(
+        f"no Hugging Face repo found for {hf_repo!r}; tried: {', '.join(_repo_candidates(hf_repo))}"
+    )
+
+
+def estimate_download_gb(cfg: ModelConfig) -> float:
+    """Conservative on-disk estimate for the BF16 base snapshot."""
+    _ = cfg
+    return BF16_35B_GB
+
+
+def _snapshot_complete(path: Path) -> bool:
+    if not path.is_dir():
+        return False
+    if not (path / "config.json").is_file():
+        return False
+    has_weights = any(path.glob("*.safetensors")) or (
+        path / "model.safetensors.index.json"
+    ).is_file()
+    if not has_weights:
+        has_weights = any(path.glob("*.bin"))
+    return has_weights
+
+
+def _check_disk_space(target: Path, required_gb: float) -> None:
+    target.mkdir(parents=True, exist_ok=True)
+    usage = shutil.disk_usage(target)
+    free_gb = usage.free / (1024**3)
+    needed_gb = required_gb * DISK_HEADROOM_RATIO
+    if free_gb < needed_gb:
+        raise OSError(
+            f"insufficient disk space at {target}: "
+            f"{free_gb:.1f} GB free, need {needed_gb:.1f} GB "
+            f"({required_gb:.1f} GB estimate × {DISK_HEADROOM_RATIO})"
+        )
+
+
+def fetch(cfg: ModelConfig) -> StageResult:
+    dest = base_dir(cfg)
+    dest.mkdir(parents=True, exist_ok=True)
+
+    if _snapshot_complete(dest):
+        return StageResult(
+            stage="fetch",
+            ok=True,
+            message=f"using cached snapshot at {dest}",
+            artifact_path=dest,
+        )
+
+    required_gb = estimate_download_gb(cfg)
+    try:
+        _check_disk_space(dest, required_gb)
+        repo_id = resolve_hf_repo(cfg.hf_repo)
+        snapshot_download(
+            repo_id=repo_id,
+            local_dir=str(dest),
+            local_dir_use_symlinks=False,
+        )
+    except (OSError, ValueError, RuntimeError) as exc:
+        return StageResult(stage="fetch", ok=False, message=str(exc))
+    except Exception as exc:  # noqa: BLE001 — HF download errors
+        return StageResult(stage="fetch", ok=False, message=f"download failed: {exc}")
+
+    if not _snapshot_complete(dest):
+        return StageResult(
+            stage="fetch",
+            ok=False,
+            message=f"download of {cfg.hf_repo} incomplete (missing config or weights)",
+        )
+
+    resolved = repo_id if repo_id != cfg.hf_repo else cfg.hf_repo
+    return StageResult(
+        stage="fetch",
+        ok=True,
+        message=f"downloaded {resolved} -> {dest}",
+        artifact_path=dest,
+        metrics={"hf_repo": resolved, "estimated_gb": required_gb},
+    )
