@@ -14,9 +14,9 @@ from pathlib import Path
 import yaml
 
 from .deploy import deploy
-from .fetch import fetch
+from .fetch import fetch, _snapshot_complete
 from .fixups import apply_fixups
-from .quantize import quantize
+from .quantize import quantize, _mlx_complete
 from .recipe import UNSLOTH_UD_3BIT
 from .types import MemoryBudget, ModelConfig, ModelType, StageResult
 from .validate import validate
@@ -84,22 +84,16 @@ def mlx_dir(cfg: ModelConfig) -> Path:
     return cfg.work_dir / cfg.name / "mlx"
 
 
-def _maybe_skip(stage: str, artifact: Path, *, force: bool) -> StageResult | None:
-    if force or not artifact.exists():
-        return None
-    return StageResult(
-        stage=stage,
-        ok=True,
-        message=f"skipped (cached at {artifact})",
-        artifact_path=artifact,
-    )
-
 
 def _run_fetch(cfg: ModelConfig, *, force: bool) -> StageResult:
     cached = base_dir(cfg)
-    skipped = _maybe_skip("fetch", cached, force=force)
-    if skipped is not None:
-        return skipped
+    if not force and _snapshot_complete(cached):
+        return StageResult(
+            stage="fetch",
+            ok=True,
+            message=f"skipped (cached at {cached})",
+            artifact_path=cached,
+        )
     result = fetch(cfg)
     if result.ok and result.artifact_path is None:
         return StageResult(
@@ -114,9 +108,13 @@ def _run_fetch(cfg: ModelConfig, *, force: bool) -> StageResult:
 
 def _run_quantize(cfg: ModelConfig, source: Path, *, force: bool) -> StageResult:
     out = mlx_dir(cfg)
-    skipped = _maybe_skip("quantize", out, force=force)
-    if skipped is not None:
-        return skipped
+    if not force and _mlx_complete(out):
+        return StageResult(
+            stage="quantize",
+            ok=True,
+            message=f"skipped (cached at {out})",
+            artifact_path=out,
+        )
     result = quantize(cfg, source)
     if result.ok and result.artifact_path is None:
         return StageResult(
