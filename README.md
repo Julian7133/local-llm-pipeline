@@ -26,7 +26,7 @@ Models deploy to `~/.omlx/models/<org>/<name>/` and serve via `omlx`.
 |--------|--------|
 | `recipe.py` | **Complete** — UD 3-bit recipe + predicate |
 | `types.py`, `cli.load_config` | **Complete** — contracts + YAML parsing |
-| `fetch/quantize/fixups/validate/deploy` | Skeleton (`NotImplementedError`) |
+| `fetch/quantize/fixups/validate/deploy` | **Implemented** — HF fetch, mlx-vlm/mlx-lm convert, fixups, perplexity+memory-fit validation, oMLX deploy smoke test |
 | `tests/` | Config, types, recipe, predicate unit tests |
 
 See `PLAN.md` §4 for the T1–T4 work breakdown.
@@ -38,10 +38,10 @@ See `PLAN.md` §4 for the T1–T4 work breakdown.
   (`A_log`, `conv1d`, `dt_bias`, norms) are skipped; projections quantize at
   8-bit via the `in_proj` / `out_proj` rules.
 - **MLX expert naming** — after convert, routed experts may appear as
-  `mlp.switch_mlp.*` rather than `mlp.experts.*`. The `switch_mlp.gate_proj`
-  path accidentally matches the router rule (`mlp.gate` substring inside
-  `switch_mlp.gate`) and quantizes at 8-bit; up/down projs stay at 3-bit and
-  do **not** receive the layer-39 bump (only `experts.*` paths do).
+  `mlp.switch_mlp.*` rather than `mlp.experts.*`. The recipe detects the router
+  by the module being *named* `gate` (suffix match), so `switch_mlp.gate_proj`
+  is correctly treated as an expert projection (3-bit, 4-bit on layer 39) and
+  not misrouted to the 8-bit router rule.
 - **Vision tower attention** — vision `q_proj`/`k_proj`/etc. match the global
   attention rule (8-bit) before the vision_tower rule (6-bit) due to rule order.
 - **VLM prefix** — mlx-vlm VLMs carry a `language_model.` prefix on language

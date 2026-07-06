@@ -119,10 +119,11 @@ Contracts live in `types.py` (T1). Threads T2–T4 depend on it; T1 lands first.
 ### Per-model quirks (discovered during predicate testing)
 
 - **MLX `switch_mlp` vs HF `experts.*`** — mlx-lm exports routed experts as
-  `mlp.switch_mlp.{gate,up,down}_proj` rather than per-expert
-  `mlp.experts.N.*`. The `switch_mlp.gate_proj` path falsely matches the router
-  rule (`mlp.gate` substring inside `switch_mlp.gate`) → 8-bit; up/down projs
-  stay at 3-bit. The last-layer bump keys off `experts.*` paths only.
+  `mlp.switch_mlp.{gate,up,down}_proj` rather than per-expert `mlp.experts.N.*`.
+  The recipe detects the router by the module *named* `gate` (suffix match, not
+  the `mlp.gate` substring), so `switch_mlp.gate_proj` is correctly an expert
+  projection (3-bit; 4-bit on the last layer). `_looks_like_expert` recognizes
+  both `experts.*` and `switch_mlp.*` so the last-layer bump applies to each.
 - **Vision tower attention** — vision `q/k/v/o_proj` paths match the global
   attention rule (8-bit) before the vision_tower rule (6-bit).
 - **VLM `language_model.` prefix** — mlx-vlm VLMs prefix language weights with
