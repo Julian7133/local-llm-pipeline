@@ -45,9 +45,11 @@ UD_RULES: tuple[Rule, ...] = (
     (("bias",), None),
 
     # --- routing / gating: keep high precision (8-bit) ---
+    # NB: the MoE router is handled specially in bits_for() (by the module being
+    # *named* `gate`, not by substring) so that expert `gate_proj` projections —
+    # including the MLX `switch_mlp.gate_proj` stacked layout — are NOT mistaken
+    # for the router. Only shared_expert_gate is safe as a plain substring here.
     (("shared_expert_gate",), 8),
-    (("mlp.gate", "block_sparse_moe.gate", ".gate."), 8),  # router
-    (("gate_proj_router",), 8),
 
     # --- attention projections: 8-bit ---
     (("q_proj", "k_proj", "v_proj", "o_proj",
@@ -93,6 +95,19 @@ class QuantRecipe:
         Returns an int (bits) to quantize, or ``None`` to skip (leave in
         original precision). Applies the last-layer expert bump.
         """
+        # The MoE router is the module *named* `gate` (e.g. ...mlp.gate). Match
+        # it by suffix, not substring, so expert `gate_proj` (HF `experts.N.*`
+        # or MLX `switch_mlp.*`) is never misrouted to 8-bit. Normalize a
+        # trailing tensor suffix first, since callers pass both module paths
+        # (".../mlp.gate") and parameter paths (".../mlp.gate.weight").
+        stem = param_path
+        for suffix in (".weight", ".bias", ".scales", ".biases"):
+            if stem.endswith(suffix):
+                stem = stem[: -len(suffix)]
+                break
+        if stem.endswith(".gate") or stem.endswith(".block_sparse_moe.gate"):
+            return 8
+
         for substrings, bits in self.rules:
             if any(s in param_path for s in substrings):
                 return bits
@@ -105,9 +120,16 @@ class QuantRecipe:
 
 
 def _looks_like_expert(param_path: str) -> bool:
+    # HF layout uses per-expert `experts.N.*`; MLX convert stacks them into
+    # `switch_mlp.*`. Both are routed experts and get the last-layer bump.
     return any(
         s in param_path
-        for s in ("experts.", "mlp.experts", "block_sparse_moe.experts")
+        for s in (
+            "experts.",
+            "mlp.experts",
+            "block_sparse_moe.experts",
+            "switch_mlp.",
+        )
     )
 
 

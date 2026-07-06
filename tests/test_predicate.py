@@ -71,11 +71,23 @@ def test_predicate_realistic_paths_return_dict_or_false() -> None:
 
 
 def test_mlx_switch_mlp_paths() -> None:
-    """MLX export uses switch_mlp.* instead of experts.*."""
-    # gate_proj falsely matches mlp.gate substring (switch_mlp.gate) -> 8-bit router rule
-    gate_path = f"model.layers.{MOE_LAYER}.mlp.switch_mlp.gate_proj.weight"
-    assert R.bits_for(gate_path) == 8
+    """MLX export stacks routed experts as switch_mlp.* instead of experts.*.
 
-    # up/down projs fall through to 3-bit default; no last-layer bump (not experts.*)
-    down_path = f"model.layers.{LAST_LAYER}.mlp.switch_mlp.down_proj.weight"
-    assert R.bits_for(down_path) == 3
+    These are routed experts, so they must follow the expert recipe (3-bit
+    default, 4-bit on the last layer) — NOT be mistaken for the 8-bit router.
+    """
+    # switch_mlp.gate_proj is an expert projection, not the router -> 3-bit.
+    gate_path = f"model.layers.{MOE_LAYER}.mlp.switch_mlp.gate_proj.weight"
+    assert R.bits_for(gate_path) == 3
+    for proj in ("gate_proj", "up_proj", "down_proj"):
+        p = f"model.layers.{MOE_LAYER}.mlp.switch_mlp.{proj}.weight"
+        assert R.bits_for(p) == 3, p
+
+    # Last-layer switch_mlp experts get the 4-bit bump, same as experts.*.
+    for proj in ("gate_proj", "up_proj", "down_proj"):
+        p = f"model.layers.{LAST_LAYER}.mlp.switch_mlp.{proj}.weight"
+        assert R.bits_for(p) == 4, p
+
+    # The real router (module named `gate`) stays 8-bit under both layouts.
+    assert R.bits_for(f"model.layers.{MOE_LAYER}.mlp.gate.weight") == 8
+    assert R.bits_for(f"model.layers.{MOE_LAYER}.mlp.gate") == 8  # module-path form
