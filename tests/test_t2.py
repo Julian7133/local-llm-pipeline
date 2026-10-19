@@ -162,7 +162,7 @@ def test_fetch_downloads_when_missing(tmp_path: Path) -> None:
 
     with patch("pipeline.fetch.resolve_hf_repo", return_value="org/model"), patch(
         "pipeline.fetch.snapshot_download", side_effect=fake_download
-    ):
+    ), patch("pipeline.fetch._check_disk_space"):
         result = fetch(cfg)
 
     assert result.ok
