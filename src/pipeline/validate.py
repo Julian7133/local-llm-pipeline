@@ -278,6 +278,16 @@ def _quick_eval(cfg: ModelConfig, mlx_dir: Path) -> str:
         ) from exc
 
 
+def _model_is_moe(model_config: dict) -> bool:
+    text_cfg = model_config.get("text_config") or model_config
+    return bool(
+        text_cfg.get("num_experts")
+        or text_cfg.get("num_local_experts")
+        or text_cfg.get("moe")
+        or "moe" in str(text_cfg.get("architectures", [])).lower()
+    )
+
+
 def validate(cfg: ModelConfig, mlx_dir: Path) -> ValidationReport:
     mlx_dir = Path(mlx_dir).expanduser().resolve()
     if not mlx_dir.exists():
@@ -285,14 +295,30 @@ def validate(cfg: ModelConfig, mlx_dir: Path) -> ValidationReport:
 
     est_weights_gb, est_kv_gb, fits_budget = memory_fits(cfg, mlx_dir)
 
-    base_ppl = _get_base_perplexity(cfg)
-    quant_ppl = _measure_perplexity(cfg, mlx_dir)
-    regression = perplexity_regression(base_ppl, quant_ppl)
+    model_config = _read_model_config(mlx_dir)
+    skip_ppl_reason: str | None = None
+    if _model_is_moe(model_config):
+        # MoE models use GatherMM which only supports float32. The BF16 base
+        # does not fit in float32 on 24GB machines, so perplexity regression
+        # cannot be measured locally. Rely on memory fit + quick eval instead.
+        skip_ppl_reason = "MoE: perplexity skipped (GatherMM float32 only)"
+
+    base_ppl: float = float("nan")
+    quant_ppl: float = float("nan")
+    regression: float = 0.0
+    if skip_ppl_reason is None:
+        base_ppl = _get_base_perplexity(cfg)
+        quant_ppl = _measure_perplexity(cfg, mlx_dir)
+        regression = perplexity_regression(base_ppl, quant_ppl)
 
     eval_notes = _quick_eval(cfg, mlx_dir)
+    ppl_note = (
+        skip_ppl_reason
+        if skip_ppl_reason
+        else f"ppl base={base_ppl:.2f} quant={quant_ppl:.2f} regression={regression:.1%}"
+    )
     eval_notes = (
-        f"{eval_notes}; ppl base={base_ppl:.2f} quant={quant_ppl:.2f} "
-        f"regression={regression:.1%}; weights≈{est_weights_gb:.2f}GB "
+        f"{eval_notes}; {ppl_note}; weights≈{est_weights_gb:.2f}GB "
         f"kv≈{est_kv_gb:.2f}GB fits={fits_budget}"
     )
 
