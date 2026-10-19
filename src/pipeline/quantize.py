@@ -63,6 +63,15 @@ def _write_quantization_config(mlx_path: Path, recipe: QuantRecipe) -> None:
 
 
 def _run_convert(cfg: ModelConfig, source_dir: Path, out: Path) -> None:
+    """Run mlx-lm/mlx-vlm convert with quantization.
+
+    Defaults to CPU device on Apple Silicon because the GPU path batches
+    quantization for all layers into a single Metal command buffer that
+    times out on limited GPUs (M3 Air, etc.) for MoE models >20B params.
+    Set ``LLMQ_GPU=1`` to force GPU mode on a machine that can handle it.
+    """
+    import os
+
     predicate = build_predicate(cfg.recipe)
     recipe = cfg.recipe
     kwargs = dict(
@@ -74,6 +83,11 @@ def _run_convert(cfg: ModelConfig, source_dir: Path, out: Path) -> None:
         q_mode=recipe.mode,
         trust_remote_code=True,
     )
+
+    import mlx.core as mx
+
+    if os.environ.get("LLMQ_GPU") != "1":
+        mx.set_default_device(mx.cpu)
 
     if cfg.model_type is ModelType.VLM:
         # NB: `from mlx_vlm import convert` — mlx_vlm.__init__ shadows the
